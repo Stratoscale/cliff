@@ -131,6 +131,33 @@ class TableFormatter(ListFormatter, SingleFormatter):
         return shrink_fields, shrink_remaining
 
     @staticmethod
+    def _plan_shrink(shrink_fields, shrink_remaining):
+        sorted_widths = sorted([len(field) for field in shrink_fields])
+        shrink_remaining -= sum(sorted_widths)
+        if shrink_remaining <= 0:
+            return {field: 0 for field in shrink_fields}
+
+        sorted_widths.append(shrink_remaining)
+        target_width = 0
+        for pos, current_width in enumerate(sorted_widths):
+            if pos * (current_width - target_width) < shrink_remaining:
+                shrink_remaining -= pos * (current_width - target_width)
+                target_width = current_width
+            else:
+                target_width += shrink_remaining // pos
+                modulo = shrink_remaining % pos
+                break
+
+        shrink_plan = {}
+        for field in shrink_fields:
+            width = len(field)
+            if width <= target_width:
+                width = target_width + (1 if modulo > 0 else 0)
+                modulo -= 1
+            shrink_plan[field] = width
+        return shrink_plan
+
+    @staticmethod
     def _assign_max_widths(stdout, x, max_width, min_width=0):
         if min_width:
             x.min_width = min_width
@@ -160,12 +187,8 @@ class TableFormatter(ListFormatter, SingleFormatter):
         shrink_fields, shrink_remaining = TableFormatter._build_shrink_fields(
             usable_total_width, optimal_width, field_widths, x.field_names)
 
-        shrink_to = shrink_remaining // len(shrink_fields)
-        # make all shrinkable fields size shrink_to apart from the last one
-        for field in shrink_fields[:-1]:
-            x.max_width[field] = max(min_width, shrink_to)
-            shrink_remaining -= shrink_to
+        shrink_plan = TableFormatter._plan_shrink(
+            shrink_fields, shrink_remaining)
 
-        # give the last shrinkable column shrink_to plus any remaining
-        field = shrink_fields[-1]
-        x.max_width[field] = max(min_width, shrink_remaining)
+        for field, shrink_to in shrink_plan.iteritems():
+            x.max_width[field] = max(min_width, shrink_to)
